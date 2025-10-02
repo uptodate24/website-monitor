@@ -8,35 +8,31 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
     steps:
-    - name: Check Test Website
-      run: |
-        # Test dengan URL yang simple
-        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://httpbin.org/status/404" --connect-timeout 10 --max-time 10)
-        echo "Test Status Code: $STATUS_CODE"
-        
-        if [ "$STATUS_CODE" -ne 200 ]; then
-          echo "🚨 Test Website DOWN - Sending Discord notification..."
-          curl -X POST \
-            -H "Content-Type: application/json" \
-            -d "{\"content\":\"🔴 **TEST NOTIFICATION**\\nWebsite: http://httpbin.org/status/404\\nStatus: $STATUS_CODE\\nTime: $(date -u)\"}" \
-            "${{ secrets.DISCORD_WEBHOOK }}"
-          echo "✅ Test notification sent to Discord"
-        else
-          echo "✅ Test Website UP - No notification sent"
-        fi
-    
-    - name: Check Real Website
+    - name: Check Mentari UNPAM
       run: |
         STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 10 --max-time 10)
-        echo "Real Website Status Code: $STATUS_CODE"
+        echo "Status Code: $STATUS_CODE"
         
-        if [ "$STATUS_CODE" -ne 200 ]; then
-          echo "🚨 Real Website DOWN - Sending Discord notification..."
+        # Simpan status sebelumnya
+        PREV_STATUS=$(cat status.txt 2>/dev/null || echo "UNKNOWN")
+        echo "Previous Status: $PREV_STATUS"
+        
+        # Kirim notifikasi jika status berubah
+        if [ "$STATUS_CODE" -eq 200 ] && [ "$PREV_STATUS" != "UP" ]; then
+          echo "🟢 Website BACK UP - Sending notification..."
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"content\":\"🟢 **MENTARI UNPAM BACK UP**\\nURL: https://mentari.unpam.ac.id/\\nStatus: $STATUS_CODE\\nTime: $(date -u)\"}" \
+            "${{ secrets.DISCORD_WEBHOOK }}"
+          echo "UP" > status.txt
+          
+        elif [ "$STATUS_CODE" -ne 200 ] && [ "$PREV_STATUS" != "DOWN" ]; then
+          echo "🔴 Website DOWN - Sending notification..."
           curl -X POST \
             -H "Content-Type: application/json" \
             -d "{\"content\":\"🔴 **MENTARI UNPAM DOWN**\\nURL: https://mentari.unpam.ac.id/\\nStatus: $STATUS_CODE\\nTime: $(date -u)\"}" \
             "${{ secrets.DISCORD_WEBHOOK }}"
-          echo "✅ Real notification sent to Discord"
+          echo "DOWN" > status.txt
         else
-          echo "✅ Real Website UP - No notification sent"
+          echo "✅ Status unchanged - No notification needed"
         fi
