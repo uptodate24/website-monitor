@@ -3,14 +3,14 @@ name: Website Health Monitor
 on:
   schedule:
     - cron: '*/5 * * * *'  # tiap 5 menit
-  workflow_dispatch:        # bisa manual
+  workflow_dispatch:        # bisa dijalankan manual
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Restore previous status dari cache
+    # 1️⃣ Restore status sebelumnya dari cache
     - name: Restore previous status
       uses: actions/cache@v3
       with:
@@ -33,41 +33,35 @@ jobs:
       if: env.STATUS_CODE != ''
       run: |
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        
+
         if [ "$STATUS_CODE" -eq 200 ] && [ "$PREV_STATUS" != "UP" ]; then
-          curl -X POST \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"embeds\": [{
-                \"title\": \"🟢 Mentari UNPAM BACK UP\",
-                \"description\": \"Website sudah kembali online.\",
-                \"color\": 3066993,
-                \"fields\": [
-                  {\"name\": \"URL\", \"value\": \"https://mentari.unpam.ac.id/\", \"inline\": true},
-                  {\"name\": \"Status Code\", \"value\": \"$STATUS_CODE\", \"inline\": true},
-                  {\"name\": \"Time (UTC)\", \"value\": \"$TIMESTAMP\", \"inline\": false}
-                ]
-              }]
-            }" \
-            "${{ secrets.DISCORD_WEBHOOK }}"
+          curl -X POST -H "Content-Type: application/json" -d '{
+            "embeds": [{
+              "title": "🟢 Mentari UNPAM BACK UP",
+              "description": "Website sudah kembali online.",
+              "color": 3066993,
+              "fields": [
+                {"name": "URL", "value": "https://mentari.unpam.ac.id/", "inline": true},
+                {"name": "Status Code", "value": "'"$STATUS_CODE"'", "inline": true},
+                {"name": "Time (UTC)", "value": "'"$TIMESTAMP"'", "inline": false}
+              ]
+            }]
+          }' "${{ secrets.DISCORD_WEBHOOK }}"
           echo "UP" > status.txt
 
         elif [ "$STATUS_CODE" -ne 200 ] && [ "$PREV_STATUS" != "DOWN" ]; then
-          curl -X POST \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"embeds\": [{
-                \"title\": \"🔴 Mentari UNPAM DOWN\",
-                \"description\": \"Website sedang tidak dapat diakses!\",
-                \"color\": 15158332,
-                \"fields\": [
-                  {\"name\": \"URL\", \"value\": \"https://mentari.unpam.ac.id/\", \"inline\": true},
-                  {\"name\": \"Status Code\", \"value\": \"$STATUS_CODE\", \"inline\": true},
-                  {\"name\": \"Time (UTC)\", \"value\": \"$TIMESTAMP\", \"inline\": false}
-                ]
-              }]
-            }" \
-            "${{ secrets.DISCORD_WEBHOOK }}"
+          curl -X POST -H "Content-Type: application/json" -d '{
+            "embeds": [{
+              "title": "🔴 Mentari UNPAM DOWN",
+              "description": "Website sedang tidak dapat diakses!",
+              "color": 15158332,
+              "fields": [
+                {"name": "URL", "value": "https://mentari.unpam.ac.id/", "inline": true},
+                {"name": "Status Code", "value": "'"$STATUS_CODE"'", "inline": true},
+                {"name": "Time (UTC)", "value": "'"$TIMESTAMP"'", "inline": false}
+              ]
+            }]
+          }' "${{ secrets.DISCORD_WEBHOOK }}"
           echo "DOWN" > status.txt
         else
           echo "✅ Status unchanged - No notification needed"
