@@ -1,0 +1,23 @@
+name: Website Health Monitor
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # Setiap 5 menit
+  workflow_dispatch:        # Bisa run manual
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check Mentari UNPAM
+      run: |
+        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/")
+        echo "Status Code: $STATUS_CODE"
+        
+        if [ "$STATUS_CODE" -ne 200 ]; then
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"content\":\"🔴 **MENTARI UNPAM DOWN**\\nURL: https://mentari.unpam.ac.id/\\nStatus: $STATUS_CODE\\nTime: $(date)\"}" \
+            ${{ secrets.DISCORD_WEBHOOK }}
+        else
+          echo "✅ Website UP"
+        fi
