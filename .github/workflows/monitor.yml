@@ -3,39 +3,38 @@ name: Mentari Monitor
 on:
   schedule:
     - cron: '*/5 * * * *'  # tiap 5 menit
-  workflow_dispatch:        # bisa dijalankan manual
+  workflow_dispatch:        # bisa run manual
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Restore status sebelumnya dari cache
-    - name: Restore previous status
-      uses: actions/cache@v3
-      with:
-        path: status.txt
-        key: website-status
+      # 1️⃣ Restore previous status dari cache
+      - name: Restore previous status
+        uses: actions/cache@v3
+        with:
+          path: status.txt
+          key: website-status
 
-    # 2️⃣ Cek status website
-    - name: Check Mentari UNPAM
-      id: check
-      run: |
-        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 10 --max-time 10)
-        PREV_STATUS=$(cat status.txt 2>/dev/null || echo "UNKNOWN")
-        echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
-        echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
-        echo "Status Code: $STATUS_CODE"
-        echo "Previous Status: $PREV_STATUS"
+      # 2️⃣ Cek status website
+      - name: Check Mentari UNPAM
+        id: check
+        run: |
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 10 --max-time 10)
+          PREV_STATUS=$(cat status.txt 2>/dev/null || echo "UNKNOWN")
+          echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
+          echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
+          echo "Status Code: $STATUS_CODE"
+          echo "Previous Status: $PREV_STATUS"
 
-    # 3️⃣ Kirim embed Discord jika status berubah
-    - name: Send Discord Embed Notification if status changed
-      if: env.STATUS_CODE != ''
-      run: |
-        TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+      # 3️⃣ Kirim embed Discord jika status berubah
+      - name: Send Discord Embed Notification if status changed
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-        if [ "$STATUS_CODE" -eq 200 ] && [ "$PREV_STATUS" != "UP" ]; then
-          curl -X POST -H "Content-Type: application/json" -d @- "${{ secrets.DISCORD_WEBHOOK }}" <<EOF
+          if [ "$STATUS_CODE" -eq 200 ] && [ "$PREV_STATUS" != "UP" ]; then
+curl -X POST -H "Content-Type: application/json" -d @- "${{ secrets.DISCORD_WEBHOOK }}" <<EOF
 {
   "embeds": [{
     "title": "🟢 Mentari UNPAM BACK UP",
@@ -49,10 +48,10 @@ jobs:
   }]
 }
 EOF
-          echo "UP" > status.txt
+            echo "UP" > status.txt
 
-        elif [ "$STATUS_CODE" -ne 200 ] && [ "$PREV_STATUS" != "DOWN" ]; then
-          curl -X POST -H "Content-Type: application/json" -d @- "${{ secrets.DISCORD_WEBHOOK }}" <<EOF
+          elif [ "$STATUS_CODE" -ne 200 ] && [ "$PREV_STATUS" != "DOWN" ]; then
+curl -X POST -H "Content-Type: application/json" -d @- "${{ secrets.DISCORD_WEBHOOK }}" <<EOF
 {
   "embeds": [{
     "title": "🔴 Mentari UNPAM DOWN",
@@ -66,13 +65,14 @@ EOF
   }]
 }
 EOF
-          echo "DOWN" > status.txt
-        else
-          echo "✅ Status unchanged - No notification needed"
+            echo "DOWN" > status.txt
 
-    # 4️⃣ Simpan status.txt ke cache
-    - name: Save status to cache
-      uses: actions/cache@v3
-      with:
-        path: status.txt
-        key: website-status
+          else
+            echo "✅ Status unchanged - No notification needed"
+
+      # 4️⃣ Simpan status.txt ke cache
+      - name: Save status to cache
+        uses: actions/cache@v3
+        with:
+          path: status.txt
+          key: website-status
