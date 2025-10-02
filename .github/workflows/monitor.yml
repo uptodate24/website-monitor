@@ -8,34 +8,35 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
     steps:
-    - name: Check Mentari UNPAM
+    - name: Check Test Website
       run: |
-        # Test dengan URL yang pasti DOWN dulu
-        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://invalid-website-test-12345.com")
-        echo "Status Code: $STATUS_CODE"
+        # Test dengan URL yang simple
+        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://httpbin.org/status/404" --connect-timeout 10 --max-time 10)
+        echo "Test Status Code: $STATUS_CODE"
         
         if [ "$STATUS_CODE" -ne 200 ]; then
-          echo "🚨 Website DOWN - Sending Discord notification..."
+          echo "🚨 Test Website DOWN - Sending Discord notification..."
           curl -X POST \
             -H "Content-Type: application/json" \
-            -d "{\"content\":\"🔴 **TEST NOTIFICATION**\\nWebsite: https://invalid-website-test-12345.com\\nStatus: $STATUS_CODE\\nTime: $(date)\"}" \
+            -d "{\"content\":\"🔴 **TEST NOTIFICATION**\\nWebsite: http://httpbin.org/status/404\\nStatus: $STATUS_CODE\\nTime: $(date -u)\"}" \
             "${{ secrets.DISCORD_WEBHOOK }}"
-          echo "✅ Notification sent to Discord"
+          echo "✅ Test notification sent to Discord"
         else
-          echo "✅ Website UP - No notification sent"
+          echo "✅ Test Website UP - No notification sent"
         fi
     
-    - name: Check Real Website (Backup)
+    - name: Check Real Website
       run: |
-        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/")
-        echo "Real Website Status Code: $STATCATCH_CODE"
+        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 10 --max-time 10)
+        echo "Real Website Status Code: $STATUS_CODE"
         
         if [ "$STATUS_CODE" -ne 200 ]; then
           echo "🚨 Real Website DOWN - Sending Discord notification..."
           curl -X POST \
             -H "Content-Type: application/json" \
-            -d "{\"content\":\"🔴 **MENTARI UNPAM DOWN**\\nURL: https://mentari.unpam.ac.id/\\nStatus: $STATUS_CODE\\nTime: $(date)\"}" \
+            -d "{\"content\":\"🔴 **MENTARI UNPAM DOWN**\\nURL: https://mentari.unpam.ac.id/\\nStatus: $STATUS_CODE\\nTime: $(date -u)\"}" \
             "${{ secrets.DISCORD_WEBHOOK }}"
+          echo "✅ Real notification sent to Discord"
         else
-          echo "✅ Real Website UP"
+          echo "✅ Real Website UP - No notification sent"
         fi
