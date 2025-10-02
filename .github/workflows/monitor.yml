@@ -21,19 +21,41 @@ jobs:
       - name: Check Mentari UNPAM
         id: check
         run: |
+          START_TIME=$(date +%s)
           STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 10 --max-time 10)
+          END_TIME=$(date +%s)
+          RESPONSE_TIME=$((END_TIME - START_TIME))
+          
           PREV_STATUS=$(cat status.txt 2>/dev/null || echo "UNKNOWN")
           echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
           echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
+          echo "RESPONSE_TIME=$RESPONSE_TIME" >> $GITHUB_ENV
           echo "Status Code: $STATUS_CODE"
           echo "Previous Status: $PREV_STATUS"
+          echo "Response Time: ${RESPONSE_TIME}s"
 
       # 3️⃣ Send UP notification
       - name: Send Discord UP if changed
         if: env.STATUS_CODE == '200' && env.PREV_STATUS != 'UP'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          curl -X POST -H "Content-Type: application/json" -d "{\"embeds\":[{\"title\":\"🟢 Mentari UNPAM BACK UP\",\"description\":\"Website sudah kembali online.\",\"color\":3066993,\"fields\":[{\"name\":\"URL\",\"value\":\"https://mentari.unpam.ac.id/\",\"inline\":true},{\"name\":\"Status Code\",\"value\":\"$STATUS_CODE\",\"inline\":true},{\"name\":\"Time (UTC)\",\"value\":\"$TIMESTAMP\",\"inline\":false}]}]}" "${{ secrets.DISCORD_WEBHOOK }}"
+          curl -X POST -H "Content-Type: application/json" -d "{
+            \"embeds\": [{
+              \"title\": \"🟢 MENTARI UNPAM ONLINE\",
+              \"description\": \"Website telah kembali normal dan dapat diakses.\",
+              \"color\": 65280,
+              \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/845/845646.png\"},
+              \"fields\": [
+                {\"name\": \"🌐 URL\", \"value\": \"https://mentari.unpam.ac.id\", \"inline\": true},
+                {\"name\": \"📊 Status Code\", \"value\": \"${{ env.STATUS_CODE }}\", \"inline\": true},
+                {\"name\": \"⚡ Response Time\", \"value\": \"${{ env.RESPONSE_TIME }} detik\", \"inline\": true},
+                {\"name\": \"🕒 Previous Status\", \"value\": \"${{ env.PREV_STATUS }}\", \"inline\": true},
+                {\"name\": \"📅 Time\", \"value\": \"<t:$(date -d \\\"$TIMESTAMP\\\" +%s):F>\", \"inline\": false}
+              ],
+              \"footer\": {\"text\": \"Mentari Monitor • GitHub Actions\", \"icon_url\": \"https://github.githubassets.com/favicons/favicon.png\"},
+              \"timestamp\": \"$TIMESTAMP\"
+            }]
+          }" "${{ secrets.DISCORD_WEBHOOK }}"
           echo "UP" > status.txt
 
       # 4️⃣ Send DOWN notification
@@ -41,10 +63,26 @@ jobs:
         if: env.STATUS_CODE != '200' && env.PREV_STATUS != 'DOWN'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          curl -X POST -H "Content-Type: application/json" -d "{\"embeds\":[{\"title\":\"🔴 Mentari UNPAM DOWN\",\"description\":\"Website sedang tidak dapat diakses!\",\"color\":15158332,\"fields\":[{\"name\":\"URL\",\"value\":\"https://mentari.unpam.ac.id/\",\"inline\":true},{\"name\":\"Status Code\",\"value\":\"$STATUS_CODE\",\"inline\":true},{\"name\":\"Time (UTC)\",\"value\":\"$TIMESTAMP\",\"inline\":false}]}]}" "${{ secrets.DISCORD_WEBHOOK }}"
+          curl -X POST -H "Content-Type: application/json" -d "{
+            \"embeds\": [{
+              \"title\": \"🔴 MENTARI UNPAM OFFLINE\",
+              \"description\": \"Website tidak dapat diakses! Periksa server atau koneksi.\",
+              \"color\": 16711680,
+              \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/753/753345.png\"},
+              \"fields\": [
+                {\"name\": \"🌐 URL\", \"value\": \"https://mentari.unpam.ac.id\", \"inline\": true},
+                {\"name\": \"📊 Status Code\", \"value\": \"${{ env.STATUS_CODE }}\", \"inline\": true},
+                {\"name\": \"❌ Error\", \"value\": \"HTTP ${{ env.STATUS_CODE }} - $(case \\\"${{ env.STATUS_CODE }}\\\" in 404) echo \\\"Not Found\\\";; 500) echo \\\"Server Error\\\";; 502) echo \\\"Bad Gateway\\\";; 503) echo \\\"Service Unavailable\\\";; 504) echo \\\"Gateway Timeout\\\";; *) echo \\\"Connection Failed\\\";; esac)\", \"inline\": true},
+                {\"name\": \"🕒 Previous Status\", \"value\": \"${{ env.PREV_STATUS }}\", \"inline\": true},
+                {\"name\": \"📅 Time\", \"value\": \"<t:$(date -d \\\"$TIMESTAMP\\\" +%s):F>\", \"inline\": false}
+              ],
+              \"footer\": {\"text\": \"Mentari Monitor • GitHub Actions\", \"icon_url\": \"https://github.githubassets.com/favicons/favicon.png\"},
+              \"timestamp\": \"$TIMESTAMP\"
+            }]
+          }" "${{ secrets.DISCORD_WEBHOOK }}"
           echo "DOWN" > status.txt
 
-      # 5️⃣ Status unchanged (opsional)
+      # 5️⃣ Status unchanged
       - name: Status unchanged
         if: (env.STATUS_CODE == '200' && env.PREV_STATUS == 'UP') || (env.STATUS_CODE != '200' && env.PREV_STATUS == 'DOWN')
         run: echo "✅ Status unchanged - No notification needed"
