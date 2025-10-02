@@ -10,14 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Restore previous status
-      - name: Restore previous status
-        uses: actions/cache@v3
-        with:
-          path: status.txt
-          key: website-status
-
-      # 2️⃣ Check Mentari UNPAM
+      # 1️⃣ Check Mentari UNPAM
       - name: Check Mentari UNPAM
         id: check
         run: |
@@ -34,62 +27,68 @@ jobs:
           echo "Previous Status: $PREV_STATUS"
           echo "Response Time: ${RESPONSE_TIME}s"
 
-      # 3️⃣ Send UP notification
+      # 2️⃣ Send UP notification (FIXED)
       - name: Send Discord UP if changed
         if: env.STATUS_CODE == '200' && env.PREV_STATUS != 'UP'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          DISCORD_TIMESTAMP=$(date -u +%s)
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
               \"title\": \"🟢 MENTARI UNPAM ONLINE\",
-              \"description\": \"Website telah kembali normal dan dapat diakses.\",
-              \"color\": 65280,
+              \"description\": \"Website Universitas Pamulang dapat diakses dengan normal.\",
+              \"color\": 3066993,
               \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/845/845646.png\"},
               \"fields\": [
-                {\"name\": \"🌐 URL\", \"value\": \"https://mentari.unpam.ac.id\", \"inline\": true},
-                {\"name\": \"📊 Status Code\", \"value\": \"${{ env.STATUS_CODE }}\", \"inline\": true},
-                {\"name\": \"⚡ Response Time\", \"value\": \"${{ env.RESPONSE_TIME }} detik\", \"inline\": true},
-                {\"name\": \"🕒 Previous Status\", \"value\": \"${{ env.PREV_STATUS }}\", \"inline\": true},
-                {\"name\": \"📅 Time\", \"value\": \"<t:$(date -d \\\"$TIMESTAMP\\\" +%s):F>\", \"inline\": false}
+                {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
+                {\"name\": \"📊 Status Code\", \"value\": \"\`${{ env.STATUS_CODE }}\`\", \"inline\": true},
+                {\"name\": \"⚡ Response Time\", \"value\": \"\`${{ env.RESPONSE_TIME }}s\`\", \"inline\": true},
+                {\"name\": \"🔄 Status Sebelumnya\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
+                {\"name\": \"🕐 Waktu\", \"value\": \"<t:${DISCORD_TIMESTAMP}:R>\", \"inline\": false}
               ],
-              \"footer\": {\"text\": \"Mentari Monitor • GitHub Actions\", \"icon_url\": \"https://github.githubassets.com/favicons/favicon.png\"},
-              \"timestamp\": \"$TIMESTAMP\"
+              \"footer\": {\"text\": \"Mentari Monitor • GitHub Actions\", \"icon_url\": \"https://github.com/favicon.ico\"},
+              \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
           echo "UP" > status.txt
 
-      # 4️⃣ Send DOWN notification
+      # 3️⃣ Send DOWN notification (FIXED)
       - name: Send Discord DOWN if changed
         if: env.STATUS_CODE != '200' && env.PREV_STATUS != 'DOWN'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          DISCORD_TIMESTAMP=$(date -u +%s)
+          
+          # Determine error message
+          case "${{ env.STATUS_CODE }}" in
+            404) ERROR_MSG="Halaman Tidak Ditemukan" ;;
+            500) ERROR_MSG="Server Error" ;;
+            502) ERROR_MSG="Bad Gateway" ;;
+            503) ERROR_MSG="Service Unavailable" ;;
+            504) ERROR_MSG="Gateway Timeout" ;;
+            *) ERROR_MSG="Koneksi Gagal" ;;
+          esac
+          
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
               \"title\": \"🔴 MENTARI UNPAM OFFLINE\",
-              \"description\": \"Website tidak dapat diakses! Periksa server atau koneksi.\",
-              \"color\": 16711680,
+              \"description\": \"Website Universitas Pamulang tidak dapat diakses!\",
+              \"color\": 15158332,
               \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/753/753345.png\"},
               \"fields\": [
-                {\"name\": \"🌐 URL\", \"value\": \"https://mentari.unpam.ac.id\", \"inline\": true},
-                {\"name\": \"📊 Status Code\", \"value\": \"${{ env.STATUS_CODE }}\", \"inline\": true},
-                {\"name\": \"❌ Error\", \"value\": \"HTTP ${{ env.STATUS_CODE }} - $(case \\\"${{ env.STATUS_CODE }}\\\" in 404) echo \\\"Not Found\\\";; 500) echo \\\"Server Error\\\";; 502) echo \\\"Bad Gateway\\\";; 503) echo \\\"Service Unavailable\\\";; 504) echo \\\"Gateway Timeout\\\";; *) echo \\\"Connection Failed\\\";; esac)\", \"inline\": true},
-                {\"name\": \"🕒 Previous Status\", \"value\": \"${{ env.PREV_STATUS }}\", \"inline\": true},
-                {\"name\": \"📅 Time\", \"value\": \"<t:$(date -d \\\"$TIMESTAMP\\\" +%s):F>\", \"inline\": false}
+                {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
+                {\"name\": \"📊 Status Code\", \"value\": \"\`${{ env.STATUS_CODE }}\`\", \"inline\": true},
+                {\"name\": \"❌ Error\", \"value\": \"\`${ERROR_MSG}\`\", \"inline\": true},
+                {\"name\": \"🔄 Status Sebelumnya\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
+                {\"name\": \"🕐 Waktu\", \"value\": \"<t:${DISCORD_TIMESTAMP}:R>\", \"inline\": false}
               ],
-              \"footer\": {\"text\": \"Mentari Monitor • GitHub Actions\", \"icon_url\": \"https://github.githubassets.com/favicons/favicon.png\"},
-              \"timestamp\": \"$TIMESTAMP\"
+              \"footer\": {\"text\": \"Mentari Monitor • GitHub Actions\", \"icon_url\": \"https://github.com/favicon.ico\"},
+              \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
           echo "DOWN" > status.txt
 
-      # 5️⃣ Status unchanged
+      # 4️⃣ Status unchanged
       - name: Status unchanged
         if: (env.STATUS_CODE == '200' && env.PREV_STATUS == 'UP') || (env.STATUS_CODE != '200' && env.PREV_STATUS == 'DOWN')
         run: echo "✅ Status unchanged - No notification needed"
-
-      # 6️⃣ Save status to cache
-      - name: Save status to cache
-        uses: actions/cache@v3
-        with:
-          path: status.txt
-          key: website-status
