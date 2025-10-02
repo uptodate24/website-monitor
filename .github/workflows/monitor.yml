@@ -2,17 +2,16 @@ name: Website Health Monitor
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # setiap 5 menit
-  workflow_dispatch:        # bisa dijalankan manual
+    - cron: '*/5 * * * *'  # tiap 5 menit
+  workflow_dispatch:        # bisa manual
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Restore status sebelumnya dari cache
+    # 1️⃣ Restore previous status dari cache
     - name: Restore previous status
-      id: restore
       uses: actions/cache@v3
       with:
         path: status.txt
@@ -23,37 +22,57 @@ jobs:
       id: check
       run: |
         STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 10 --max-time 10)
-        echo "Status Code: $STATUS_CODE"
-
         PREV_STATUS=$(cat status.txt 2>/dev/null || echo "UNKNOWN")
-        echo "Previous Status: $PREV_STATUS"
-
         echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
         echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
+        echo "Status Code: $STATUS_CODE"
+        echo "Previous Status: $PREV_STATUS"
 
-    # 3️⃣ Kirim notifikasi Discord kalau berubah
-    - name: Send Discord Notification if status changed
-      if: env.STATUS_CODE != ''  # pastikan ada status
+    # 3️⃣ Kirim notif ke Discord pakai embed
+    - name: Send Discord Embed Notification if status changed
+      if: env.STATUS_CODE != ''
       run: |
+        TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        
         if [ "$STATUS_CODE" -eq 200 ] && [ "$PREV_STATUS" != "UP" ]; then
-          echo "🟢 Website BACK UP - Sending notification..."
           curl -X POST \
             -H "Content-Type: application/json" \
-            -d "{\"content\":\"🟢 **MENTARI UNPAM BACK UP**\\nURL: https://mentari.unpam.ac.id/\\nStatus: $STATUS_CODE\\nTime: $(date -u)\"}" \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"🟢 Mentari UNPAM BACK UP\",
+                \"description\": \"Website sudah kembali online.\",
+                \"color\": 3066993,
+                \"fields\": [
+                  {\"name\": \"URL\", \"value\": \"https://mentari.unpam.ac.id/\", \"inline\": true},
+                  {\"name\": \"Status Code\", \"value\": \"$STATUS_CODE\", \"inline\": true},
+                  {\"name\": \"Time (UTC)\", \"value\": \"$TIMESTAMP\", \"inline\": false}
+                ]
+              }]
+            }" \
             "${{ secrets.DISCORD_WEBHOOK }}"
           echo "UP" > status.txt
 
         elif [ "$STATUS_CODE" -ne 200 ] && [ "$PREV_STATUS" != "DOWN" ]; then
-          echo "🔴 Website DOWN - Sending notification..."
           curl -X POST \
             -H "Content-Type: application/json" \
-            -d "{\"content\":\"🔴 **MENTARI UNPAM DOWN**\\nURL: https://mentari.unpam.ac.id/\\nStatus: $STATUS_CODE\\nTime: $(date -u)\"}" \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"🔴 Mentari UNPAM DOWN\",
+                \"description\": \"Website sedang tidak dapat diakses!\",
+                \"color\": 15158332,
+                \"fields\": [
+                  {\"name\": \"URL\", \"value\": \"https://mentari.unpam.ac.id/\", \"inline\": true},
+                  {\"name\": \"Status Code\", \"value\": \"$STATUS_CODE\", \"inline\": true},
+                  {\"name\": \"Time (UTC)\", \"value\": \"$TIMESTAMP\", \"inline\": false}
+                ]
+              }]
+            }" \
             "${{ secrets.DISCORD_WEBHOOK }}"
           echo "DOWN" > status.txt
         else
           echo "✅ Status unchanged - No notification needed"
 
-    # 4️⃣ Simpan status.txt ke cache supaya bisa dibaca di run berikutnya
+    # 4️⃣ Simpan status.txt ke cache
     - name: Save status to cache
       uses: actions/cache@v3
       with:
