@@ -2,15 +2,22 @@ name: Mentari Monitor
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # tiap 5 menit
-  workflow_dispatch:        # bisa run manual
+    - cron: '*/5 * * * *'   # tiap 5 menit
+  workflow_dispatch:         # bisa run manual
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Check Mentari UNPAM
+      # 🔹 1. Restore status.txt dari cache
+      - name: Restore status cache
+        uses: actions/cache@v3
+        with:
+          path: status.txt
+          key: website-status
+
+      # 🔹 2. Cek status website
       - name: Check Mentari UNPAM
         id: check
         run: |
@@ -18,25 +25,28 @@ jobs:
           STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 10 --max-time 10)
           END_TIME=$(date +%s)
           RESPONSE_TIME=$((END_TIME - START_TIME))
-          
+
           PREV_STATUS=$(cat status.txt 2>/dev/null || echo "UNKNOWN")
+
           echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
           echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
           echo "RESPONSE_TIME=$RESPONSE_TIME" >> $GITHUB_ENV
+
           echo "Status Code: $STATUS_CODE"
           echo "Previous Status: $PREV_STATUS"
           echo "Response Time: ${RESPONSE_TIME}s"
 
-      # 2️⃣ Send UP notification (FIXED)
+      # 🔹 3. Kirim notif kalau UP lagi
       - name: Send Discord UP if changed
         if: env.STATUS_CODE == '200' && env.PREV_STATUS != 'UP'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           DISCORD_TIMESTAMP=$(date -u +%s)
+
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
               \"title\": \"🟢 MENTARI UNPAM ONLINE\",
-              \"description\": \"Website Universitas Pamulang dapat diakses dengan normal.\",
+              \"description\": \"Website Universitas Pamulang kembali dapat diakses.\",
               \"color\": 3066993,
               \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/845/845646.png\"},
               \"fields\": [
@@ -50,25 +60,25 @@ jobs:
               \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
+
           echo "UP" > status.txt
 
-      # 3️⃣ Send DOWN notification (FIXED)
+      # 🔹 4. Kirim notif kalau DOWN
       - name: Send Discord DOWN if changed
         if: env.STATUS_CODE != '200' && env.PREV_STATUS != 'DOWN'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           DISCORD_TIMESTAMP=$(date -u +%s)
-          
-          # Determine error message
+
           case "${{ env.STATUS_CODE }}" in
             404) ERROR_MSG="Halaman Tidak Ditemukan" ;;
             500) ERROR_MSG="Server Error" ;;
             502) ERROR_MSG="Bad Gateway" ;;
             503) ERROR_MSG="Service Unavailable" ;;
             504) ERROR_MSG="Gateway Timeout" ;;
-            *) ERROR_MSG="Koneksi Gagal" ;;
+            *) ERROR_MSG="Koneksi Gagal / Timeout" ;;
           esac
-          
+
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
               \"title\": \"🔴 MENTARI UNPAM OFFLINE\",
@@ -86,9 +96,17 @@ jobs:
               \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
+
           echo "DOWN" > status.txt
 
-      # 4️⃣ Status unchanged
+      # 🔹 5. Kalau status sama → no notif
       - name: Status unchanged
         if: (env.STATUS_CODE == '200' && env.PREV_STATUS == 'UP') || (env.STATUS_CODE != '200' && env.PREV_STATUS == 'DOWN')
         run: echo "✅ Status unchanged - No notification needed"
+
+      # 🔹 6. Simpan status.txt ke cache
+      - name: Save status cache
+        uses: actions/cache@v3
+        with:
+          path: status.txt
+          key: website-status
