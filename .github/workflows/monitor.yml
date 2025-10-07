@@ -15,34 +15,49 @@ jobs:
         uses: actions/cache@v3
         with:
           path: status.txt
-          key: website-status
+          key: website-status-${{ github.ref }}
+          restore-keys: |
+            website-status-${{ github.ref }}
 
-      # 🔹 2. Cek status website
+      # 🔹 2. Cek status website (DIPERBAIKI)
       - name: Check Mentari UNPAM
         id: check
         run: |
+          # Inisialisasi status sebelumnya
+          if [ -f "status.txt" ]; then
+            PREV_STATUS=$(cat status.txt)
+          else
+            PREV_STATUS="UNKNOWN"
+          fi
+          
+          echo "Previous Status: $PREV_STATUS"
+          
+          # Cek website dengan timeout yang lebih baik
           START_TIME=$(date +%s)
-          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 10 --max-time 10)
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 15 --max-time 20 || echo "000")
           END_TIME=$(date +%s)
           RESPONSE_TIME=$((END_TIME - START_TIME))
-
-          PREV_STATUS=$(cat status.txt 2>/dev/null || echo "UNKNOWN")
-
+          
+          # Jika curl gagal (timeout/connection failed)
+          if [ "$STATUS_CODE" = "000" ]; then
+            STATUS_CODE="000"
+            echo "Website is DOWN - Connection failed or timeout"
+          fi
+          
           echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
           echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
           echo "RESPONSE_TIME=$RESPONSE_TIME" >> $GITHUB_ENV
-
+          
           echo "Status Code: $STATUS_CODE"
-          echo "Previous Status: $PREV_STATUS"
           echo "Response Time: ${RESPONSE_TIME}s"
 
-      # 🔹 3. Kirim notif kalau UP lagi
+      # 🔹 3. Kirim notif kalau UP lagi (DIPERBAIKI)
       - name: Send Discord UP if changed
         if: env.STATUS_CODE == '200' && env.PREV_STATUS != 'UP'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           DISCORD_TIMESTAMP=$(date -u +%s)
-
+          
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
               \"title\": \"🟢 MENTARI UNPAM ONLINE\",
@@ -60,25 +75,27 @@ jobs:
               \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
-
+          
           echo "UP" > status.txt
+          echo "✅ UP notification sent"
 
-      # 🔹 4. Kirim notif kalau DOWN
+      # 🔹 4. Kirim notif kalau DOWN (DIPERBAIKI)
       - name: Send Discord DOWN if changed
         if: env.STATUS_CODE != '200' && env.PREV_STATUS != 'DOWN'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           DISCORD_TIMESTAMP=$(date -u +%s)
-
+          
           case "${{ env.STATUS_CODE }}" in
+            000) ERROR_MSG="Connection Failed / Timeout" ;;
             404) ERROR_MSG="Halaman Tidak Ditemukan" ;;
             500) ERROR_MSG="Server Error" ;;
             502) ERROR_MSG="Bad Gateway" ;;
             503) ERROR_MSG="Service Unavailable" ;;
             504) ERROR_MSG="Gateway Timeout" ;;
-            *) ERROR_MSG="Koneksi Gagal / Timeout" ;;
+            *) ERROR_MSG="Koneksi Gagal / Error ${{ env.STATUS_CODE }}" ;;
           esac
-
+          
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
               \"title\": \"🔴 MENTARI UNPAM OFFLINE\",
@@ -89,6 +106,7 @@ jobs:
                 {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
                 {\"name\": \"📊 Status Code\", \"value\": \"\`${{ env.STATUS_CODE }}\`\", \"inline\": true},
                 {\"name\": \"❌ Error\", \"value\": \"\`${ERROR_MSG}\`\", \"inline\": true},
+                {\"name\": \"⚡ Response Time\", \"value\": \"\`${{ env.RESPONSE_TIME }}s\`\", \"inline\": true},
                 {\"name\": \"🔄 Status Sebelumnya\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
                 {\"name\": \"🕐 Waktu\", \"value\": \"<t:${DISCORD_TIMESTAMP}:R>\", \"inline\": false}
               ],
@@ -96,17 +114,22 @@ jobs:
               \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
-
+          
           echo "DOWN" > status.txt
+          echo "🔴 DOWN notification sent"
 
       # 🔹 5. Kalau status sama → no notif
       - name: Status unchanged
         if: (env.STATUS_CODE == '200' && env.PREV_STATUS == 'UP') || (env.STATUS_CODE != '200' && env.PREV_STATUS == 'DOWN')
-        run: echo "✅ Status unchanged - No notification needed"
+        run: |
+          echo "✅ Status unchanged - No notification needed"
+          echo "Current: ${{ env.STATUS_CODE }}, Previous: ${{ env.PREV_STATUS }}"
 
-      # 🔹 6. Simpan status.txt ke cache
+      # 🔹 6. Simpan status.txt ke cache (DIPERBAIKI)
       - name: Save status cache
         uses: actions/cache@v3
         with:
           path: status.txt
-          key: website-status
+          key: website-status-${{ github.ref }}-${{ hashFiles('status.txt') }}
+          restore-keys: |
+            website-status-${{ github.ref }}-
