@@ -10,20 +10,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 🔹 1. Restore status.txt dari cache
-      - name: Restore status cache
-        uses: actions/cache@v3
-        with:
-          path: status.txt
-          key: website-status-${{ github.ref }}
-          restore-keys: |
-            website-status-${{ github.ref }}
+      # 🔹 1. Checkout repo untuk simpan status
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # 🔹 2. Cek status website (DIPERBAIKI)
+      # 🔹 2. Cek status website (FIXED LOGIC)
       - name: Check Mentari UNPAM
         id: check
         run: |
-          # Inisialisasi status sebelumnya
+          # Baca status sebelumnya
           if [ -f "status.txt" ]; then
             PREV_STATUS=$(cat status.txt)
           else
@@ -32,31 +27,36 @@ jobs:
           
           echo "Previous Status: $PREV_STATUS"
           
-          # Cek website dengan timeout yang lebih baik
+          # Cek website
           START_TIME=$(date +%s)
           STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 15 --max-time 20 || echo "000")
           END_TIME=$(date +%s)
           RESPONSE_TIME=$((END_TIME - START_TIME))
           
-          # Jika curl gagal (timeout/connection failed)
-          if [ "$STATUS_CODE" = "000" ]; then
-            STATUS_CODE="000"
-            echo "Website is DOWN - Connection failed or timeout"
+          # Tentukan CURRENT_STATUS (harus DOWN/UP, bukan kode angka)
+          if [ "$STATUS_CODE" = "200" ]; then
+            CURRENT_STATUS="UP"
+            echo "Website is UP - Status Code: $STATUS_CODE"
+          else
+            CURRENT_STATUS="DOWN"
+            echo "Website is DOWN - Status Code: $STATUS_CODE"
           fi
           
           echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
+          echo "CURRENT_STATUS=$CURRENT_STATUS" >> $GITHUB_ENV
           echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
           echo "RESPONSE_TIME=$RESPONSE_TIME" >> $GITHUB_ENV
           
-          echo "Status Code: $STATUS_CODE"
-          echo "Response Time: ${RESPONSE_TIME}s"
+          echo "📊 Status Comparison: Previous: $PREV_STATUS, Current: $CURRENT_STATUS, Code: $STATUS_CODE, Response Time: ${RESPONSE_TIME}s"
 
-      # 🔹 3. Kirim notif kalau UP lagi (DIPERBAIKI)
+      # 🔹 3. Kirim notif UP jika berubah (FIXED)
       - name: Send Discord UP if changed
-        if: env.STATUS_CODE == '200' && env.PREV_STATUS != 'UP'
+        if: env.CURRENT_STATUS == 'UP' && env.PREV_STATUS != 'UP'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           DISCORD_TIMESTAMP=$(date -u +%s)
+          
+          echo "🟢 Status berubah dari ${{ env.PREV_STATUS }} ke UP - Mengirim notif Discord..."
           
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
@@ -75,16 +75,18 @@ jobs:
               \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
-          
-          echo "UP" > status.txt
-          echo "✅ UP notification sent"
 
-      # 🔹 4. Kirim notif kalau DOWN (DIPERBAIKI)
+          echo "UP" > status.txt
+          echo "✅ UP notification sent and status saved"
+
+      # 🔹 4. Kirim notif DOWN jika berubah (FIXED)
       - name: Send Discord DOWN if changed
-        if: env.STATUS_CODE != '200' && env.PREV_STATUS != 'DOWN'
+        if: env.CURRENT_STATUS == 'DOWN' && env.PREV_STATUS != 'DOWN'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           DISCORD_TIMESTAMP=$(date -u +%s)
+          
+          echo "🔴 Status berubah dari ${{ env.PREV_STATUS }} ke DOWN - Mengirim notif Discord..."
           
           case "${{ env.STATUS_CODE }}" in
             000) ERROR_MSG="Connection Failed / Timeout" ;;
@@ -95,7 +97,7 @@ jobs:
             504) ERROR_MSG="Gateway Timeout" ;;
             *) ERROR_MSG="Koneksi Gagal / Error ${{ env.STATUS_CODE }}" ;;
           esac
-          
+
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
               \"title\": \"🔴 MENTARI UNPAM OFFLINE\",
@@ -114,22 +116,23 @@ jobs:
               \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
-          
+
           echo "DOWN" > status.txt
-          echo "🔴 DOWN notification sent"
+          echo "🔴 DOWN notification sent and status saved"
 
-      # 🔹 5. Kalau status sama → no notif
+      # 🔹 5. Status unchanged (FIXED)
       - name: Status unchanged
-        if: (env.STATUS_CODE == '200' && env.PREV_STATUS == 'UP') || (env.STATUS_CODE != '200' && env.PREV_STATUS == 'DOWN')
+        if: env.CURRENT_STATUS == env.PREV_STATUS
         run: |
-          echo "✅ Status unchanged - No notification needed"
-          echo "Current: ${{ env.STATUS_CODE }}, Previous: ${{ env.PREV_STATUS }}"
+          echo "✅ Status unchanged: ${{ env.CURRENT_STATUS }} - No notification needed"
+          echo "Saving current status to file..."
+          echo "${{ env.CURRENT_STATUS }}" > status.txt
 
-      # 🔹 6. Simpan status.txt ke cache (DIPERBAIKI)
-      - name: Save status cache
-        uses: actions/cache@v3
-        with:
-          path: status.txt
-          key: website-status-${{ github.ref }}-${{ hashFiles('status.txt') }}
-          restore-keys: |
-            website-status-${{ github.ref }}-
+      # 🔹 6. Commit status perubahan ke repo
+      - name: Commit status changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add status.txt
+          git diff --staged --quiet || git commit -m "Update status: $(cat status.txt) [$(date +%Y-%m-%d\ %H:%M)]"
+          git push
