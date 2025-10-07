@@ -10,11 +10,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 🔹 1. Checkout repo untuk simpan status
+      # 🔹 1. Checkout repo dengan PAT
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
 
-      # 🔹 2. Cek status website (FIXED LOGIC)
+      # 🔹 2. Cek status website
       - name: Check Mentari UNPAM
         id: check
         run: |
@@ -49,7 +51,7 @@ jobs:
           
           echo "📊 Status Comparison: Previous: $PREV_STATUS, Current: $CURRENT_STATUS, Code: $STATUS_CODE, Response Time: ${RESPONSE_TIME}s"
 
-      # 🔹 3. Kirim notif UP jika berubah (FIXED)
+      # 🔹 3. Kirim notif UP jika berubah
       - name: Send Discord UP if changed
         if: env.CURRENT_STATUS == 'UP' && env.PREV_STATUS != 'UP'
         run: |
@@ -79,7 +81,7 @@ jobs:
           echo "UP" > status.txt
           echo "✅ UP notification sent and status saved"
 
-      # 🔹 4. Kirim notif DOWN jika berubah (FIXED)
+      # 🔹 4. Kirim notif DOWN jika berubah
       - name: Send Discord DOWN if changed
         if: env.CURRENT_STATUS == 'DOWN' && env.PREV_STATUS != 'DOWN'
         run: |
@@ -120,15 +122,14 @@ jobs:
           echo "DOWN" > status.txt
           echo "🔴 DOWN notification sent and status saved"
 
-      # 🔹 5. Status unchanged (FIXED)
+      # 🔹 5. Status unchanged
       - name: Status unchanged
         if: env.CURRENT_STATUS == env.PREV_STATUS
         run: |
           echo "✅ Status unchanged: ${{ env.CURRENT_STATUS }} - No notification needed"
-          echo "Saving current status to file..."
           echo "${{ env.CURRENT_STATUS }}" > status.txt
 
-      # 🔹 6. Commit status perubahan ke repo
+      # 🔹 6. Commit status changes dengan PAT
       - name: Commit status changes
         run: |
           git config --local user.email "action@github.com"
