@@ -2,15 +2,15 @@ name: Mentari Monitor
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # tiap 5 menit
-  workflow_dispatch:         # bisa run manual
+    - cron: '*/5 * * * *'   # setiap 5 menit
+  workflow_dispatch:         # bisa dijalankan manual
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
 
     steps:
-      # 🔹 1. Checkout repo dengan PAT
+      # 🔹 1. Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -20,50 +20,65 @@ jobs:
       - name: Check Mentari UNPAM
         id: check
         run: |
+          URL="https://mentari.unpam.ac.id/"
+          ATTEMPTS=3
+          SUCCESS=false
+          MAX_SLOW_TIME=10.0
+
           # Baca status sebelumnya
           if [ -f "status.txt" ]; then
             PREV_STATUS=$(cat status.txt)
           else
             PREV_STATUS="UNKNOWN"
           fi
-          
           echo "Previous Status: $PREV_STATUS"
-          
-          # Cek website
-          START_TIME=$(date +%s)
-          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://mentari.unpam.ac.id/" --connect-timeout 15 --max-time 20 || echo "000")
-          END_TIME=$(date +%s)
-          RESPONSE_TIME=$((END_TIME - START_TIME))
-          
-          # Tentukan CURRENT_STATUS (harus DOWN/UP, bukan kode angka)
-          if [ "$STATUS_CODE" = "200" ]; then
-            CURRENT_STATUS="UP"
-            echo "Website is UP - Status Code: $STATUS_CODE"
+
+          # Coba 3x request
+          for i in $(seq 1 $ATTEMPTS); do
+            echo "Attempt $i..."
+            RESULT=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" "$URL" --connect-timeout 10 --max-time 15 || echo "000 0")
+            STATUS_CODE=$(echo "$RESULT" | awk '{print $1}')
+            RESPONSE_TIME=$(echo "$RESULT" | awk '{print $2}')
+
+            if [ "$STATUS_CODE" = "200" ]; then
+              SUCCESS=true
+              break
+            fi
+            sleep 3
+          done
+
+          # Tentukan status berdasarkan hasil
+          if [ "$SUCCESS" = true ]; then
+            # Jika berhasil tapi respon terlalu lama
+            if (( $(echo "$RESPONSE_TIME > $MAX_SLOW_TIME" | bc -l) )); then
+              CURRENT_STATUS="SLOW"
+            else
+              CURRENT_STATUS="UP"
+            fi
           else
             CURRENT_STATUS="DOWN"
-            echo "Website is DOWN - Status Code: $STATUS_CODE"
           fi
-          
+
+          # Simpan hasil ke env
           echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
           echo "CURRENT_STATUS=$CURRENT_STATUS" >> $GITHUB_ENV
           echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
           echo "RESPONSE_TIME=$RESPONSE_TIME" >> $GITHUB_ENV
-          
-          echo "📊 Status Comparison: Previous: $PREV_STATUS, Current: $CURRENT_STATUS, Code: $STATUS_CODE, Response Time: ${RESPONSE_TIME}s"
 
-      # 🔹 3. Kirim notif UP jika berubah
-      - name: Send Discord UP if changed
+          echo "📊 Status: Prev=$PREV_STATUS | Curr=$CURRENT_STATUS | Code=$STATUS_CODE | Time=${RESPONSE_TIME}s"
+
+      # 🔹 3. Notif UP
+      - name: Send Discord UP
         if: env.CURRENT_STATUS == 'UP' && env.PREV_STATUS != 'UP'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           DISCORD_TIMESTAMP=$(date -u +%s)
-          
-          echo "🟢 Status berubah dari ${{ env.PREV_STATUS }} ke UP - Mengirim notif Discord..."
-          
+          echo "🟢 Mengirim notifikasi UP..."
+
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
               \"title\": \"🟢 MENTARI UNPAM ONLINE\",
-              \"description\": \"Website Universitas Pamulang kembali dapat diakses.\",
+              \"description\": \"Website Universitas Pamulang kembali normal dan dapat diakses.\",
               \"color\": 3066993,
               \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/845/845646.png\"},
               \"fields\": [
@@ -79,37 +94,24 @@ jobs:
           }" "${{ secrets.DISCORD_WEBHOOK }}"
 
           echo "UP" > status.txt
-          echo "✅ UP notification sent and status saved"
 
-      # 🔹 4. Kirim notif DOWN jika berubah
-      - name: Send Discord DOWN if changed
-        if: env.CURRENT_STATUS == 'DOWN' && env.PREV_STATUS != 'DOWN'
+      # 🔹 4. Notif SLOW
+      - name: Send Discord SLOW
+        if: env.CURRENT_STATUS == 'SLOW' && env.PREV_STATUS != 'SLOW'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           DISCORD_TIMESTAMP=$(date -u +%s)
-          
-          echo "🔴 Status berubah dari ${{ env.PREV_STATUS }} ke DOWN - Mengirim notif Discord..."
-          
-          case "${{ env.STATUS_CODE }}" in
-            000) ERROR_MSG="Connection Failed / Timeout" ;;
-            404) ERROR_MSG="Halaman Tidak Ditemukan" ;;
-            500) ERROR_MSG="Server Error" ;;
-            502) ERROR_MSG="Bad Gateway" ;;
-            503) ERROR_MSG="Service Unavailable" ;;
-            504) ERROR_MSG="Gateway Timeout" ;;
-            *) ERROR_MSG="Koneksi Gagal / Error ${{ env.STATUS_CODE }}" ;;
-          esac
+          echo "🟠 Mengirim notifikasi SLOW..."
 
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
-              \"title\": \"🔴 MENTARI UNPAM OFFLINE\",
-              \"description\": \"Website Universitas Pamulang tidak dapat diakses!\",
-              \"color\": 15158332,
-              \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/753/753345.png\"},
+              \"title\": \"🟠 MENTARI UNPAM LAMBAT\",
+              \"description\": \"Website masih dapat diakses namun memiliki waktu respon tinggi (>10s). Kemungkinan server sedang sibuk.\",
+              \"color\": 16753920,
+              \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/2099/2099058.png\"},
               \"fields\": [
                 {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
                 {\"name\": \"📊 Status Code\", \"value\": \"\`${{ env.STATUS_CODE }}\`\", \"inline\": true},
-                {\"name\": \"❌ Error\", \"value\": \"\`${ERROR_MSG}\`\", \"inline\": true},
                 {\"name\": \"⚡ Response Time\", \"value\": \"\`${{ env.RESPONSE_TIME }}s\`\", \"inline\": true},
                 {\"name\": \"🔄 Status Sebelumnya\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
                 {\"name\": \"🕐 Waktu\", \"value\": \"<t:${DISCORD_TIMESTAMP}:R>\", \"inline\": false}
@@ -119,21 +121,58 @@ jobs:
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
 
-          echo "DOWN" > status.txt
-          echo "🔴 DOWN notification sent and status saved"
+          echo "SLOW" > status.txt
 
-      # 🔹 5. Status unchanged
+      # 🔹 5. Notif DOWN
+      - name: Send Discord DOWN
+        if: env.CURRENT_STATUS == 'DOWN' && env.PREV_STATUS != 'DOWN'
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          DISCORD_TIMESTAMP=$(date -u +%s)
+          echo "🔴 Mengirim notifikasi DOWN..."
+
+          case "${{ env.STATUS_CODE }}" in
+            000) ERROR_MSG="Connection Failed / Timeout" ;;
+            404) ERROR_MSG="Not Found (404)" ;;
+            500) ERROR_MSG="Internal Server Error" ;;
+            502) ERROR_MSG="Bad Gateway" ;;
+            503) ERROR_MSG="Service Unavailable" ;;
+            504) ERROR_MSG="Gateway Timeout" ;;
+            *) ERROR_MSG="Error Code ${{ env.STATUS_CODE }}" ;;
+          esac
+
+          curl -X POST -H "Content-Type: application/json" -d "{
+            \"embeds\": [{
+              \"title\": \"🔴 MENTARI UNPAM OFFLINE\",
+              \"description\": \"Website Universitas Pamulang tidak dapat diakses setelah 3 percobaan.\",
+              \"color\": 15158332,
+              \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/753/753345.png\"},
+              \"fields\": [
+                {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
+                {\"name\": \"📊 Status Code\", \"value\": \"\`${{ env.STATUS_CODE }}\`\", \"inline\": true},
+                {\"name\": \"❌ Error\", \"value\": \"\`${ERROR_MSG}\`\", \"inline\": true},
+                {\"name\": \"🔄 Status Sebelumnya\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
+                {\"name\": \"🕐 Waktu\", \"value\": \"<t:${DISCORD_TIMESTAMP}:R>\", \"inline\": false}
+              ],
+              \"footer\": {\"text\": \"Mentari Monitor • GitHub Actions\", \"icon_url\": \"https://github.com/favicon.ico\"},
+              \"timestamp\": \"${TIMESTAMP}\"
+            }]
+          }" "${{ secrets.DISCORD_WEBHOOK }}"
+
+          echo "DOWN" > status.txt
+
+      # 🔹 6. Jika status sama, tidak kirim notif
       - name: Status unchanged
         if: env.CURRENT_STATUS == env.PREV_STATUS
         run: |
-          echo "✅ Status unchanged: ${{ env.CURRENT_STATUS }} - No notification needed"
+          echo "✅ Status unchanged: ${{ env.CURRENT_STATUS }}"
           echo "${{ env.CURRENT_STATUS }}" > status.txt
 
-      # 🔹 6. Commit status changes dengan PAT
+      # 🔹 7. Commit perubahan status
       - name: Commit status changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add status.txt
-          git diff --staged --quiet || git commit -m "Update status: $(cat status.txt) [$(date +%Y-%m-%d\ %H:%M)]"
+          git diff --staged --quiet || git commit -m "Update status: $(cat status.txt) [$(date +'%Y-%m-%d %H:%M')]"
           git push
