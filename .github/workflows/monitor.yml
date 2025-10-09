@@ -16,7 +16,7 @@ jobs:
         with:
           token: ${{ secrets.PAT_TOKEN }}
 
-      # 🔹 2. Cek status website (FIXED VERSION)
+      # 🔹 2. Cek status website (FIXED CURL COMMAND)
       - name: Check Mentari UNPAM
         id: check
         run: |
@@ -34,22 +34,37 @@ jobs:
 
           echo "Previous Status: $PREV_STATUS"
 
-          # Coba 3x request
+          # Coba 3x request dengan curl yang diperbaiki
           for i in $(seq 1 $ATTEMPTS); do
             echo "🔍 Attempt $i..."
             START_TIME=$(date +%s)
-            STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL" --connect-timeout 10 --max-time 15 || echo "000")
+            
+            # FIX: Clean curl command dengan output yang lebih simple
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$URL" --connect-timeout 10 --max-time 15 2>/dev/null)
+            EXIT_CODE=$?
+            
             END_TIME=$(date +%s)
             RESPONSE_TIME=$((END_TIME - START_TIME))
             
-            echo "Response time: ${RESPONSE_TIME}s, Status: $STATUS_CODE"
+            # Jika curl gagal, set status code ke 000
+            if [ $EXIT_CODE -ne 0 ] || [ -z "$RESPONSE" ]; then
+              STATUS_CODE="000"
+            else
+              # Hanya ambil 3 digit pertama untuk pastikan format benar
+              STATUS_CODE=$(echo "$RESPONSE" | head -c 3)
+            fi
+            
+            echo "Response time: ${RESPONSE_TIME}s, Status: $STATUS_CODE, Exit Code: $EXIT_CODE"
             
             if [ "$STATUS_CODE" = "200" ]; then
               SUCCESS=true
               break
             fi
-            echo "❌ Attempt $i failed, retrying..."
-            sleep 2
+            
+            if [ $i -lt $ATTEMPTS ]; then
+              echo "❌ Attempt $i failed, retrying..."
+              sleep 2
+            fi
           done
 
           # Tentukan status berdasarkan hasil
@@ -63,7 +78,7 @@ jobs:
             fi
           else
             CURRENT_STATUS="DOWN"
-            echo "🔴 Website DOWN"
+            echo "🔴 Website DOWN - Final Status Code: $STATUS_CODE"
           fi
 
           # Simpan ke environment variables
@@ -78,10 +93,10 @@ jobs:
       - name: Debug Information
         run: |
           echo "=== 🐛 DEBUG INFO ==="
-          echo "STATUS_CODE: ${{ env.STATUS_CODE }}"
-          echo "CURRENT_STATUS: ${{ env.CURRENT_STATUS }}"
-          echo "PREV_STATUS: ${{ env.PREV_STATUS }}"
-          echo "RESPONSE_TIME: ${{ env.RESPONSE_TIME }}"
+          echo "STATUS_CODE: '${{ env.STATUS_CODE }}'"
+          echo "CURRENT_STATUS: '${{ env.CURRENT_STATUS }}'"
+          echo "PREV_STATUS: '${{ env.PREV_STATUS }}'"
+          echo "RESPONSE_TIME: '${{ env.RESPONSE_TIME }}'"
           echo "UP Condition: ${{ env.CURRENT_STATUS == 'UP' && env.PREV_STATUS != 'UP' }}"
           echo "DOWN Condition: ${{ env.CURRENT_STATUS == 'DOWN' && env.PREV_STATUS != 'DOWN' }}"
           echo "SLOW Condition: ${{ env.CURRENT_STATUS == 'SLOW' && env.PREV_STATUS != 'SLOW' }}"
