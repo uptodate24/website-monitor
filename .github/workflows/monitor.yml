@@ -16,12 +16,12 @@ jobs:
         with:
           token: ${{ secrets.PAT_TOKEN }}
 
-      # 🔹 2. Cek status website (FIXED CURL COMMAND)
+      # 🔹 2. Cek status website (FIXED TIMEOUT HANDLING)
       - name: Check Mentari UNPAM
         id: check
         run: |
           URL="https://mentari.unpam.ac.id/"
-          ATTEMPTS=3
+          ATTEMPTS=2
           SUCCESS=false
           MAX_TIME=10
           
@@ -34,36 +34,29 @@ jobs:
 
           echo "Previous Status: $PREV_STATUS"
 
-          # Coba 3x request dengan curl yang diperbaiki
+          # Coba request dengan timeout handling yang better
           for i in $(seq 1 $ATTEMPTS); do
             echo "🔍 Attempt $i..."
             START_TIME=$(date +%s)
             
-            # FIX: Clean curl command dengan output yang lebih simple
-            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$URL" --connect-timeout 10 --max-time 15 2>/dev/null)
-            EXIT_CODE=$?
+            # FIX: Gunakan timeout yang lebih pendek dan handle error
+            STATUS_CODE=$(timeout 12s curl -s -o /dev/null -w "%{http_code}" "$URL" --connect-timeout 8 --max-time 10 2>/dev/null || echo "000")
             
             END_TIME=$(date +%s)
             RESPONSE_TIME=$((END_TIME - START_TIME))
             
-            # Jika curl gagal, set status code ke 000
-            if [ $EXIT_CODE -ne 0 ] || [ -z "$RESPONSE" ]; then
-              STATUS_CODE="000"
-            else
-              # Hanya ambil 3 digit pertama untuk pastikan format benar
-              STATUS_CODE=$(echo "$RESPONSE" | head -c 3)
-            fi
+            echo "Response time: ${RESPONSE_TIME}s, Status: $STATUS_CODE"
             
-            echo "Response time: ${RESPONSE_TIME}s, Status: $STATUS_CODE, Exit Code: $EXIT_CODE"
-            
+            # Jika dapat 200, break loop
             if [ "$STATUS_CODE" = "200" ]; then
               SUCCESS=true
               break
             fi
             
+            # Jika bukan attempt terakhir, tunggu sebentar
             if [ $i -lt $ATTEMPTS ]; then
-              echo "❌ Attempt $i failed, retrying..."
-              sleep 2
+              echo "❌ Attempt $i failed, retrying in 3s..."
+              sleep 3
             fi
           done
 
@@ -78,7 +71,7 @@ jobs:
             fi
           else
             CURRENT_STATUS="DOWN"
-            echo "🔴 Website DOWN - Final Status Code: $STATUS_CODE"
+            echo "🔴 Website DOWN - Cannot be reached"
           fi
 
           # Simpan ke environment variables
@@ -168,7 +161,7 @@ jobs:
           echo "🔴 Mengirim notifikasi DOWN..."
 
           case "${{ env.STATUS_CODE }}" in
-            000) ERROR_MSG="Connection Failed / Timeout" ;;
+            000) ERROR_MSG="Connection Timeout / Cannot Reach Server" ;;
             404) ERROR_MSG="Not Found (404)" ;;
             500) ERROR_MSG="Internal Server Error" ;;
             502) ERROR_MSG="Bad Gateway" ;;
@@ -180,13 +173,14 @@ jobs:
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
               \"title\": \"🔴 MENTARI UNPAM OFFLINE\",
-              \"description\": \"Website Universitas Pamulang tidak dapat diakses setelah 3 percobaan.\",
+              \"description\": \"Website Universitas Pamulang tidak dapat diakses (Timeout/Connection Failed).\",
               \"color\": 15158332,
               \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/753/753345.png\"},
               \"fields\": [
                 {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
                 {\"name\": \"📊 Status Code\", \"value\": \"\`${{ env.STATUS_CODE }}\`\", \"inline\": true},
                 {\"name\": \"❌ Error\", \"value\": \"\`${ERROR_MSG}\`\", \"inline\": true},
+                {\"name\": \"⚡ Response Time\", \"value\": \"\`${{ env.RESPONSE_TIME }}s\`\", \"inline\": true},
                 {\"name\": \"🔄 Status Sebelumnya\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
                 {\"name\": \"🕐 Waktu\", \"value\": \"<t:${DISCORD_TIMESTAMP}:R>\", \"inline\": false}
               ],
