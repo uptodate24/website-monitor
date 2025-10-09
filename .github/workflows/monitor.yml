@@ -16,58 +16,77 @@ jobs:
         with:
           token: ${{ secrets.PAT_TOKEN }}
 
-      # 🔹 2. Cek status website
+      # 🔹 2. Cek status website (FIXED VERSION)
       - name: Check Mentari UNPAM
         id: check
         run: |
           URL="https://mentari.unpam.ac.id/"
           ATTEMPTS=3
           SUCCESS=false
-          MAX_SLOW_TIME=10.0
-
+          MAX_TIME=10
+          
           # Baca status sebelumnya
           if [ -f "status.txt" ]; then
             PREV_STATUS=$(cat status.txt)
           else
             PREV_STATUS="UNKNOWN"
           fi
+
           echo "Previous Status: $PREV_STATUS"
 
           # Coba 3x request
           for i in $(seq 1 $ATTEMPTS); do
-            echo "Attempt $i..."
-            RESULT=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" "$URL" --connect-timeout 10 --max-time 15 || echo "000 0")
-            STATUS_CODE=$(echo "$RESULT" | awk '{print $1}')
-            RESPONSE_TIME=$(echo "$RESULT" | awk '{print $2}')
-
+            echo "🔍 Attempt $i..."
+            START_TIME=$(date +%s)
+            STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL" --connect-timeout 10 --max-time 15 || echo "000")
+            END_TIME=$(date +%s)
+            RESPONSE_TIME=$((END_TIME - START_TIME))
+            
+            echo "Response time: ${RESPONSE_TIME}s, Status: $STATUS_CODE"
+            
             if [ "$STATUS_CODE" = "200" ]; then
               SUCCESS=true
               break
             fi
-            sleep 3
+            echo "❌ Attempt $i failed, retrying..."
+            sleep 2
           done
 
           # Tentukan status berdasarkan hasil
           if [ "$SUCCESS" = true ]; then
-            # Jika berhasil tapi respon terlalu lama
-            if (( $(echo "$RESPONSE_TIME > $MAX_SLOW_TIME" | bc -l) )); then
+            if [ "$RESPONSE_TIME" -gt "$MAX_TIME" ]; then
               CURRENT_STATUS="SLOW"
+              echo "🟡 Website UP but SLOW (${RESPONSE_TIME}s)"
             else
               CURRENT_STATUS="UP"
+              echo "🟢 Website UP (${RESPONSE_TIME}s)"
             fi
           else
             CURRENT_STATUS="DOWN"
+            echo "🔴 Website DOWN"
           fi
 
-          # Simpan hasil ke env
+          # Simpan ke environment variables
           echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
           echo "CURRENT_STATUS=$CURRENT_STATUS" >> $GITHUB_ENV
           echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
           echo "RESPONSE_TIME=$RESPONSE_TIME" >> $GITHUB_ENV
 
-          echo "📊 Status: Prev=$PREV_STATUS | Curr=$CURRENT_STATUS | Code=$STATUS_CODE | Time=${RESPONSE_TIME}s"
+          echo "📊 FINAL RESULT: Previous=$PREV_STATUS, Current=$CURRENT_STATUS, Code=$STATUS_CODE, Time=${RESPONSE_TIME}s"
 
-      # 🔹 3. Notif UP
+      # 🔹 3. Debug Information
+      - name: Debug Information
+        run: |
+          echo "=== 🐛 DEBUG INFO ==="
+          echo "STATUS_CODE: ${{ env.STATUS_CODE }}"
+          echo "CURRENT_STATUS: ${{ env.CURRENT_STATUS }}"
+          echo "PREV_STATUS: ${{ env.PREV_STATUS }}"
+          echo "RESPONSE_TIME: ${{ env.RESPONSE_TIME }}"
+          echo "UP Condition: ${{ env.CURRENT_STATUS == 'UP' && env.PREV_STATUS != 'UP' }}"
+          echo "DOWN Condition: ${{ env.CURRENT_STATUS == 'DOWN' && env.PREV_STATUS != 'DOWN' }}"
+          echo "SLOW Condition: ${{ env.CURRENT_STATUS == 'SLOW' && env.PREV_STATUS != 'SLOW' }}"
+
+      # 🔹 4. Notif UP
       - name: Send Discord UP
         if: env.CURRENT_STATUS == 'UP' && env.PREV_STATUS != 'UP'
         run: |
@@ -78,7 +97,7 @@ jobs:
           curl -X POST -H "Content-Type: application/json" -d "{
             \"embeds\": [{
               \"title\": \"🟢 MENTARI UNPAM ONLINE\",
-              \"description\": \"Website Universitas Pamulang kembali normal dan dapat diakses.\",
+              \"description\": \"Website Universitas Pamulang kembali normal dan dapat diakses dengan cepat.\",
               \"color\": 3066993,
               \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/845/845646.png\"},
               \"fields\": [
@@ -94,8 +113,9 @@ jobs:
           }" "${{ secrets.DISCORD_WEBHOOK }}"
 
           echo "UP" > status.txt
+          echo "✅ UP notification sent"
 
-      # 🔹 4. Notif SLOW
+      # 🔹 5. Notif SLOW
       - name: Send Discord SLOW
         if: env.CURRENT_STATUS == 'SLOW' && env.PREV_STATUS != 'SLOW'
         run: |
@@ -122,8 +142,9 @@ jobs:
           }" "${{ secrets.DISCORD_WEBHOOK }}"
 
           echo "SLOW" > status.txt
+          echo "🟠 SLOW notification sent"
 
-      # 🔹 5. Notif DOWN
+      # 🔹 6. Notif DOWN
       - name: Send Discord DOWN
         if: env.CURRENT_STATUS == 'DOWN' && env.PREV_STATUS != 'DOWN'
         run: |
@@ -160,15 +181,16 @@ jobs:
           }" "${{ secrets.DISCORD_WEBHOOK }}"
 
           echo "DOWN" > status.txt
+          echo "🔴 DOWN notification sent"
 
-      # 🔹 6. Jika status sama, tidak kirim notif
+      # 🔹 7. Jika status sama, tidak kirim notif
       - name: Status unchanged
         if: env.CURRENT_STATUS == env.PREV_STATUS
         run: |
-          echo "✅ Status unchanged: ${{ env.CURRENT_STATUS }}"
+          echo "✅ Status unchanged: ${{ env.CURRENT_STATUS }} - No notification needed"
           echo "${{ env.CURRENT_STATUS }}" > status.txt
 
-      # 🔹 7. Commit perubahan status
+      # 🔹 8. Commit perubahan status
       - name: Commit status changes
         run: |
           git config --local user.email "action@github.com"
