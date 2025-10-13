@@ -16,7 +16,7 @@ jobs:
         with:
           token: ${{ secrets.PAT_TOKEN }}
 
-      # 🔹 2. REAL-TIME CHECK dengan timeout panjang
+      # 🔹 2. REAL-TIME CHECK 
       - name: Check Mentari UNPAM
         id: check
         run: |
@@ -28,16 +28,15 @@ jobs:
           else
             PREV_STATUS="UNKNOWN"
           fi
+
           echo "Previous Status: $PREV_STATUS"
 
-          # 🚀 REAL-TIME CHECK dengan timeout 30 detik
-          echo "🔍 REAL-TIME CHECK (Timeout: 30s)..."
+          # REAL-TIME CHECK dengan timeout 30 detik
+          echo "🔍 Checking website..."
           START_TIME=$(date +%s)
           
-          # Gunakan curl dengan timeout panjang + simpan output untuk debugging
-          RESPONSE=$(timeout 30s curl -v -s -o /dev/null -w "%{http_code} %{time_total}" \
+          RESPONSE=$(timeout 30s curl -s -o /dev/null -w "%{http_code} %{time_total}" \
             -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-            -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
             --connect-timeout 25 \
             --max-time 30 \
             "$URL" 2>&1)
@@ -46,92 +45,70 @@ jobs:
           END_TIME=$(date +%s)
           TOTAL_TIME=$((END_TIME - START_TIME))
           
-          # Extract status code dari response
-          STATUS_CODE=$(echo "$RESPONSE" | grep -oE 'HTTP/[0-9.]+ [0-9]+' | tail -1 | awk '{print $2}')
-          if [ -z "$STATUS_CODE" ]; then
-            STATUS_CODE=$(echo "$RESPONSE" | tail -1 | awk '{print $1}')
-          fi
+          STATUS_CODE=$(echo "$RESPONSE" | awk '{print $1}')
+          RESPONSE_TIME=$(echo "$RESPONSE" | awk '{print $2}')
           
-          # Jika masih kosong, cek exit code
-          if [ -z "$STATUS_CODE" ] || [ "$STATUS_CODE" = "000" ]; then
-            if [ $CURL_EXIT -eq 124 ] || [ $CURL_EXIT -eq 28 ]; then
-              echo "⏰ TIMEOUT (30s) - Website lambat tapi mungkin masih up"
-              STATUS_CODE="TIMEOUT"
-              RESPONSE_TIME=$TOTAL_TIME
-            else
-              STATUS_CODE="000"
-              RESPONSE_TIME=$TOTAL_TIME
-            fi
-          else
-            RESPONSE_TIME=$(echo "$RESPONSE" | grep -oE '[0-9]+\.[0-9]+' | tail -1 || echo $TOTAL_TIME)
+          if [ -z "$RESPONSE_TIME" ]; then
+            RESPONSE_TIME=$TOTAL_TIME
           fi
-          
-          echo "Response Time: ${RESPONSE_TIME}s"
-          echo "Status Code: $STATUS_CODE"
-          echo "CURL Exit Code: $CURL_EXIT"
 
-          # 🎯 SMART STATUS DETECTION
+          # Tentukan status
           if [ "$STATUS_CODE" = "200" ]; then
             if (( $(echo "$RESPONSE_TIME > 15" | bc -l 2>/dev/null || echo "0") )); then
               CURRENT_STATUS="VERY_SLOW"
-              echo "🐌 Website UP tapi SANGAT LAMBAT (${RESPONSE_TIME}s)"
             elif (( $(echo "$RESPONSE_TIME > 8" | bc -l 2>/dev/null || echo "0") )); then
               CURRENT_STATUS="SLOW" 
-              echo "🟡 Website UP tapi LAMBAT (${RESPONSE_TIME}s)"
             else
               CURRENT_STATUS="UP"
-              echo "🟢 Website UP dan CEPAT (${RESPONSE_TIME}s)"
             fi
-          elif [ "$STATUS_CODE" = "TIMEOUT" ]; then
-            # Timeout tapi mungkin masih bisa diakses (hanya lambat)
+          elif [ $CURL_EXIT -eq 124 ] || [ $CURL_EXIT -eq 28 ]; then
             CURRENT_STATUS="EXTREME_SLOW"
-            echo "🚨 Website EXTREME SLOW (>30s) tapi mungkin masih UP"
           else
-            # Cek sekali lagi dengan method sederhana
-            echo "🔎 Quick verification..."
+            # Quick verification
             if timeout 10s curl -s --head "$URL" >/dev/null 2>&1; then
               CURRENT_STATUS="UP"
-              echo "🟢 VERIFIED: Website actually UP!"
             else
               CURRENT_STATUS="DOWN"
-              echo "🔴 CONFIRMED: Website really DOWN"
             fi
           fi
 
-          # Simpan ke environment variables
           echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
           echo "CURRENT_STATUS=$CURRENT_STATUS" >> $GITHUB_ENV
           echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
           echo "RESPONSE_TIME=$RESPONSE_TIME" >> $GITHUB_ENV
 
-          echo "📊 FINAL: Previous=$PREV_STATUS, Current=$CURRENT_STATUS, Response=${RESPONSE_TIME}s"
+          echo "📊 Result: $PREV_STATUS → $CURRENT_STATUS (${RESPONSE_TIME}s)"
 
-      # 🔹 3. Notif UP
+      # 🔹 3. Notif UP - ESTHETIC ✅
       - name: Send Discord UP
         if: env.CURRENT_STATUS == 'UP' && env.PREV_STATUS != 'UP'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          DISCORD_TIMESTAMP=$(date -u +%s)
           
           curl -X POST -H "Content-Type: application/json" -d "{
+            \"username\": \"🌐 Mentari Monitor\",
             \"embeds\": [{
-              \"title\": \"🟢 MENTARI UNPAM ONLINE - NORMAL\",
-              \"description\": \"Website dapat diakses dengan respon normal.\",
-              \"color\": 3066993,
+              \"title\": \"✅ MENTARI UNPAM ONLINE\",
+              \"description\": \"Website dapat diakses dengan **respon normal**.\",
+              \"color\": 5763719,
+              \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/845/845646.png\"},
               \"fields\": [
                 {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
+                {\"name\": \"📊 Status Code\", \"value\": \"\`${{ env.STATUS_CODE }}\`\", \"inline\": true},
                 {\"name\": \"⚡ Response Time\", \"value\": \"\`${{ env.RESPONSE_TIME }}s\`\", \"inline\": true},
-                {\"name\": \"📊 Status\", \"value\": \"UP (Normal)\", \"inline\": true},
+                {\"name\": \"🟢 Status\", \"value\": \"**OPERATIONAL**\", \"inline\": true},
+                {\"name\": \"🔄 Previous\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
                 {\"name\": \"🌍 Monitor\", \"value\": \"GitHub Actions\", \"inline\": true}
               ],
-              \"footer\": {\"text\": \"Real-time Monitor • $(date +'%H:%M')\"},
+              \"footer\": {\"text\": \"Mentari Monitor • $(date +'%H:%M:%S')\", \"icon_url\": \"https://github.com/favicon.ico\"},
               \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
 
           echo "UP" > status.txt
+          echo "✅ UP notification sent"
 
-      # 🔹 4. Notif SLOW
+      # 🔹 4. Notif SLOW - 🟡
       - name: Send Discord SLOW
         if: (env.CURRENT_STATUS == 'SLOW' || env.CURRENT_STATUS == 'VERY_SLOW') && env.PREV_STATUS != 'SLOW' && env.PREV_STATUS != 'VERY_SLOW'
         run: |
@@ -140,78 +117,96 @@ jobs:
           if [ "${{ env.CURRENT_STATUS }}" = "VERY_SLOW" ]; then
             TITLE="🐌 MENTARI UNPAM - SANGAT LAMBAT"
             COLOR=16753920
-            DESC="Website dapat diakses namun sangat lambat (>15s)"
+            STATUS_TEXT="**HIGH LATENCY**"
+            DESC="Website dapat diakses namun **sangat lambat** (>15s)"
+            EMOJI="🐌"
           else
-            TITLE="🟡 MENTARI UNPAM - LAMBAT" 
+            TITLE="🟡 MENTARI UNPAM - LAMBAT"
             COLOR=16776960
-            DESC="Website dapat diakses namun lambat (>8s)"
+            STATUS_TEXT="**SLOW**"
+            DESC="Website dapat diakses namun **lambat** (>8s)"
+            EMOJI="🟡"
           fi
           
           curl -X POST -H "Content-Type: application/json" -d "{
+            \"username\": \"🌐 Mentari Monitor\",
             \"embeds\": [{
               \"title\": \"${TITLE}\",
               \"description\": \"${DESC}\",
               \"color\": ${COLOR},
+              \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/4206/4206274.png\"},
               \"fields\": [
                 {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
-                {\"name\": \"⚡ Response Time\", \"value\": \"\`${{ env.RESPONSE_TIME }}s\`\", \"inline\": true},
-                {\"name\": \"📊 Status\", \"value\": \"UP (Slow)\", \"inline\": true},
+                {\"name\": \"📊 Status Code\", \"value\": \"\`${{ env.STATUS_CODE }}\`\", \"inline\": true},
+                {\"name\": \"⏱️ Response Time\", \"value\": \"\`${{ env.RESPONSE_TIME }}s\`\", \"inline\": true},
+                {\"name\": \"${EMOJI} Status\", \"value\": \"${STATUS_TEXT}\", \"inline\": true},
+                {\"name\": \"🔄 Previous\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
                 {\"name\": \"💡 Info\", \"value\": \"Server mungkin sedang sibuk\", \"inline\": false}
               ],
-              \"footer\": {\"text\": \"Real-time Monitor • $(date +'%H:%M')\"},
+              \"footer\": {\"text\": \"Mentari Monitor • $(date +'%H:%M:%S')\", \"icon_url\": \"https://github.com/favicon.ico\"},
               \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
 
           echo "SLOW" > status.txt
+          echo "🟡 SLOW notification sent"
 
-      # 🔹 5. Notif EXTREME SLOW (Timeout tapi masih UP)
+      # 🔹 5. Notif EXTREME SLOW - 🚨
       - name: Send Discord EXTREME SLOW
         if: env.CURRENT_STATUS == 'EXTREME_SLOW' && env.PREV_STATUS != 'EXTREME_SLOW'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           
           curl -X POST -H "Content-Type: application/json" -d "{
+            \"username\": \"🌐 Mentari Monitor\",
             \"embeds\": [{
               \"title\": \"🚨 MENTARI UNPAM - EXTREME SLOW\",
-              \"description\": \"Website timeout (>30s) tapi mungkin masih bisa diakses dengan sangat lambat.\",
-              \"color\": 16711680,
+              \"description\": \"Website **timeout** (>30s) namun mungkin masih bisa diakses dengan sangat lambat.\",
+              \"color\": 15105570,
+              \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/753/753345.png\"},
               \"fields\": [
                 {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
                 {\"name\": \"⏰ Response Time\", \"value\": \"\`>30s (Timeout)\`\", \"inline\": true},
-                {\"name\": \"📊 Status\", \"value\": \"Extreme Slow\", \"inline\": true},
+                {\"name\": \"🚨 Status\", \"value\": \"**EXTREME LATENCY**\", \"inline\": true},
+                {\"name\": \"🔄 Previous\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
                 {\"name\": \"⚠️ Note\", \"value\": \"Website mungkin masih UP tapi sangat lambat\", \"inline\": false}
               ],
-              \"footer\": {\"text\": \"Real-time Monitor • $(date +'%H:%M')\"},
+              \"footer\": {\"text\": \"Mentari Monitor • $(date +'%H:%M:%S')\", \"icon_url\": \"https://github.com/favicon.ico\"},
               \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
 
           echo "EXTREME_SLOW" > status.txt
+          echo "🚨 EXTREME SLOW notification sent"
 
-      # 🔹 6. Notif DOWN (HANYA jika benar-benar down)
+      # 🔹 6. Notif DOWN - 🔴
       - name: Send Discord DOWN
         if: env.CURRENT_STATUS == 'DOWN' && env.PREV_STATUS != 'DOWN'
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           
           curl -X POST -H "Content-Type: application/json" -d "{
+            \"username\": \"🌐 Mentari Monitor\",
             \"embeds\": [{
               \"title\": \"🔴 MENTARI UNPAM - OFFLINE\",
-              \"description\": \"Website benar-benar tidak dapat diakses.\",
-              \"color\": 15158332,
+              \"description\": \"Website **tidak dapat diakses** setelah verifikasi ganda.\",
+              \"color\": 15548997,
+              \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/753/753345.png\"},
               \"fields\": [
                 {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
                 {\"name\": \"📊 Status Code\", \"value\": \"\`${{ env.STATUS_CODE }}\`\", \"inline\": true},
-                {\"name\": \"🌍 Monitor\", \"value\": \"GitHub Actions\", \"inline\": true},
-                {\"name\": \"✅ Verified\", \"value\": \"Double-checked\", \"inline\": true}
+                {\"name\": \"🔴 Status\", \"value\": \"**OFFLINE**\", \"inline\": true},
+                {\"name\": \"🔄 Previous\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
+                {\"name\": \"✅ Verified\", \"value\": \"Double-checked\", \"inline\": true},
+                {\"name\": \"🌍 Monitor\", \"value\": \"GitHub Actions\", \"inline\": true}
               ],
-              \"footer\": {\"text\": \"Real-time Monitor • $(date +'%H:%M')\"},
+              \"footer\": {\"text\": \"Mentari Monitor • $(date +'%H:%M:%S')\", \"icon_url\": \"https://github.com/favicon.ico\"},
               \"timestamp\": \"${TIMESTAMP}\"
             }]
           }" "${{ secrets.DISCORD_WEBHOOK }}"
 
           echo "DOWN" > status.txt
+          echo "🔴 DOWN notification sent"
 
       # 🔹 7. Status unchanged
       - name: Status unchanged
