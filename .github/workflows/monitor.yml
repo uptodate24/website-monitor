@@ -16,7 +16,7 @@ jobs:
         with:
           token: ${{ secrets.PAT_TOKEN }}
 
-      # 🔹 2. REAL-TIME CHECK 
+      # 🔹 2. REAL-TIME CHECK YANG BENER 
       - name: Check Mentari UNPAM
         id: check
         run: |
@@ -31,53 +31,117 @@ jobs:
 
           echo "Previous Status: $PREV_STATUS"
 
-          # REAL-TIME CHECK dengan timeout 30 detik
-          echo "🔍 Checking website..."
-          START_TIME=$(date +%s)
-          
-          RESPONSE=$(timeout 30s curl -s -o /dev/null -w "%{http_code} %{time_total}" \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-            --connect-timeout 25 \
-            --max-time 30 \
-            "$URL" 2>&1)
-          
-          CURL_EXIT=$?
-          END_TIME=$(date +%s)
-          TOTAL_TIME=$((END_TIME - START_TIME))
-          
-          STATUS_CODE=$(echo "$RESPONSE" | awk '{print $1}')
-          RESPONSE_TIME=$(echo "$RESPONSE" | awk '{print $2}')
-          
-          if [ -z "$RESPONSE_TIME" ]; then
-            RESPONSE_TIME=$TOTAL_TIME
+          # 🚀 TECHNOLOGY MUTAKHIR - BEDAIN BENER DOWN vs SLOW
+          echo "🔍 Advanced website checking..."
+          ATTEMPT=1
+          MAX_ATTEMPTS=2
+          SUCCESS=false
+          FINAL_STATUS="DOWN"
+          FINAL_RESPONSE_TIME=0
+          FINAL_STATUS_CODE="000"
+
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ] && [ "$SUCCESS" = false ]; do
+            echo "Attempt $ATTEMPT..."
+            START_TIME=$(date +%s)
+            
+            # Method 1: Cek dengan curl detail
+            RESPONSE=$(timeout 15s curl -v -s -o /dev/null -w "%{http_code} %{time_total}" \
+              -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+              --connect-timeout 12 \
+              --max-time 15 \
+              "$URL" 2>&1)
+            
+            CURL_EXIT=$?
+            END_TIME=$(date +%s)
+            RESPONSE_TIME=$((END_TIME - START_TIME))
+            
+            # Extract status code dari response verbose
+            HTTP_STATUS=$(echo "$RESPONSE" | grep -oE 'HTTP/[0-9.]+ [0-9]+' | tail -1 | awk '{print $2}')
+            SIMPLE_STATUS=$(echo "$RESPONSE" | awk '{print $1}')
+            
+            # Prioritize HTTP status dari header
+            if [ -n "$HTTP_STATUS" ] && [ "$HTTP_STATUS" != "000" ]; then
+              STATUS_CODE="$HTTP_STATUS"
+            else
+              STATUS_CODE="$SIMPLE_STATUS"
+            fi
+            
+            echo "Attempt $ATTEMPT - Status: $STATUS_CODE, Time: ${RESPONSE_TIME}s, Exit: $CURL_EXIT"
+            
+            # 🎯 CRITICAL FIX: KALAU DAPET 200, LANGSUNG UP
+            if [ "$STATUS_CODE" = "200" ]; then
+              SUCCESS=true
+              FINAL_STATUS_CODE="200"
+              FINAL_RESPONSE_TIME=$RESPONSE_TIME
+              
+              # Tentukan level speed
+              if [ "$RESPONSE_TIME" -gt 15 ]; then
+                FINAL_STATUS="VERY_SLOW"
+                echo "🟡 Website UP tapi VERY SLOW (${RESPONSE_TIME}s)"
+              elif [ "$RESPONSE_TIME" -gt 8 ]; then
+                FINAL_STATUS="SLOW"
+                echo "🟡 Website UP tapi SLOW (${RESPONSE_TIME}s)"
+              else
+                FINAL_STATUS="UP"
+                echo "🟢 Website UP (${RESPONSE_TIME}s)"
+              fi
+              break
+            fi
+            
+            # 🎯 CRITICAL FIX 2: KALAU TIMEOUT/GAGAL, CEK ULANG DENGAN METHOD BERBEDA
+            if [ $CURL_EXIT -ne 0 ] || [ "$STATUS_CODE" = "000" ] || [ "$STATUS_CODE" = "TIMEOUT" ]; then
+              echo "❌ Attempt $ATTEMPT failed, trying alternative method..."
+              
+              # Method 2: Cek hanya HEAD request (lebih cepat)
+              START_TIME2=$(date +%s)
+              HEAD_RESPONSE=$(timeout 8s curl -I -s -o /dev/null -w "%{http_code}" \
+                -H "User-Agent: Monitor-Bot/1.0" \
+                --connect-timeout 6 \
+                --max-time 8 \
+                "$URL" 2>/dev/null || echo "000")
+              END_TIME2=$(date +%s)
+              HEAD_TIME=$((END_TIME2 - START_TIME2))
+              
+              echo "HEAD Check - Status: $HEAD_RESPONSE, Time: ${HEAD_TIME}s"
+              
+              if [ "$HEAD_RESPONSE" = "200" ]; then
+                SUCCESS=true
+                FINAL_STATUS_CODE="200"
+                FINAL_RESPONSE_TIME=$HEAD_TIME
+                FINAL_STATUS="UP"
+                echo "🟢 Website UP via HEAD check (${HEAD_TIME}s)"
+                break
+              fi
+              
+              # Method 3: Final attempt - simple connectivity test
+              echo "🔎 Final connectivity test..."
+              if ping -c 2 -W 5 "mentari.unpam.ac.id" 2>/dev/null | grep -q "64 bytes"; then
+                echo "🌐 Server is reachable via ping but HTTP failed"
+                FINAL_STATUS="DOWN"  # Server up tapi service down
+              else
+                echo "🔴 Server completely unreachable"
+                FINAL_STATUS="DOWN"
+              fi
+            fi
+            
+            FINAL_STATUS_CODE="$STATUS_CODE"
+            FINAL_RESPONSE_TIME=$RESPONSE_TIME
+            ATTEMPT=$((ATTEMPT + 1))
+            sleep 2
+          done
+
+          # 🎯 FINAL DECISION: KALAU GA DAPET 200, PASTI DOWN
+          if [ "$SUCCESS" = false ]; then
+            FINAL_STATUS="DOWN"
+            echo "🔴 FINAL VERDICT: WEBSITE DOWN - No successful HTTP 200 response"
           fi
 
-          # Tentukan status
-          if [ "$STATUS_CODE" = "200" ]; then
-            if (( $(echo "$RESPONSE_TIME > 15" | bc -l 2>/dev/null || echo "0") )); then
-              CURRENT_STATUS="VERY_SLOW"
-            elif (( $(echo "$RESPONSE_TIME > 8" | bc -l 2>/dev/null || echo "0") )); then
-              CURRENT_STATUS="SLOW" 
-            else
-              CURRENT_STATUS="UP"
-            fi
-          elif [ $CURL_EXIT -eq 124 ] || [ $CURL_EXIT -eq 28 ]; then
-            CURRENT_STATUS="EXTREME_SLOW"
-          else
-            # Quick verification
-            if timeout 10s curl -s --head "$URL" >/dev/null 2>&1; then
-              CURRENT_STATUS="UP"
-            else
-              CURRENT_STATUS="DOWN"
-            fi
-          fi
-
-          echo "STATUS_CODE=$STATUS_CODE" >> $GITHUB_ENV
-          echo "CURRENT_STATUS=$CURRENT_STATUS" >> $GITHUB_ENV
+          echo "STATUS_CODE=$FINAL_STATUS_CODE" >> $GITHUB_ENV
+          echo "CURRENT_STATUS=$FINAL_STATUS" >> $GITHUB_ENV
           echo "PREV_STATUS=$PREV_STATUS" >> $GITHUB_ENV
-          echo "RESPONSE_TIME=$RESPONSE_TIME" >> $GITHUB_ENV
+          echo "RESPONSE_TIME=$FINAL_RESPONSE_TIME" >> $GITHUB_ENV
 
-          echo "📊 Result: $PREV_STATUS → $CURRENT_STATUS (${RESPONSE_TIME}s)"
+          echo "📊 FINAL: $PREV_STATUS → $FINAL_STATUS (Code: $FINAL_STATUS_CODE, Time: ${FINAL_RESPONSE_TIME}s)"
 
       # 🔹 3. Notif UP - ESTHETIC ✅
       - name: Send Discord UP
@@ -151,35 +215,7 @@ jobs:
           echo "SLOW" > status.txt
           echo "🟡 SLOW notification sent"
 
-      # 🔹 5. Notif EXTREME SLOW - 🚨
-      - name: Send Discord EXTREME SLOW
-        if: env.CURRENT_STATUS == 'EXTREME_SLOW' && env.PREV_STATUS != 'EXTREME_SLOW'
-        run: |
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          
-          curl -X POST -H "Content-Type: application/json" -d "{
-            \"username\": \"🌐 Mentari Monitor\",
-            \"embeds\": [{
-              \"title\": \"🚨 MENTARI UNPAM - EXTREME SLOW\",
-              \"description\": \"Website **timeout** (>30s) namun mungkin masih bisa diakses dengan sangat lambat.\",
-              \"color\": 15105570,
-              \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/753/753345.png\"},
-              \"fields\": [
-                {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
-                {\"name\": \"⏰ Response Time\", \"value\": \"\`>30s (Timeout)\`\", \"inline\": true},
-                {\"name\": \"🚨 Status\", \"value\": \"**EXTREME LATENCY**\", \"inline\": true},
-                {\"name\": \"🔄 Previous\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
-                {\"name\": \"⚠️ Note\", \"value\": \"Website mungkin masih UP tapi sangat lambat\", \"inline\": false}
-              ],
-              \"footer\": {\"text\": \"Mentari Monitor • $(date +'%H:%M:%S')\", \"icon_url\": \"https://github.com/favicon.ico\"},
-              \"timestamp\": \"${TIMESTAMP}\"
-            }]
-          }" "${{ secrets.DISCORD_WEBHOOK }}"
-
-          echo "EXTREME_SLOW" > status.txt
-          echo "🚨 EXTREME SLOW notification sent"
-
-      # 🔹 6. Notif DOWN - 🔴
+      # 🔹 5. Notif DOWN - 🔴
       - name: Send Discord DOWN
         if: env.CURRENT_STATUS == 'DOWN' && env.PREV_STATUS != 'DOWN'
         run: |
@@ -189,16 +225,16 @@ jobs:
             \"username\": \"🌐 Mentari Monitor\",
             \"embeds\": [{
               \"title\": \"🔴 MENTARI UNPAM - OFFLINE\",
-              \"description\": \"Website **tidak dapat diakses** setelah verifikasi ganda.\",
+              \"description\": \"Website **benar-benar tidak dapat diakses**.\n\\`\\`\\`HTTP Status: ${{ env.STATUS_CODE }} | Response: ${{ env.RESPONSE_TIME }}s\\`\\`\\`\",
               \"color\": 15548997,
               \"thumbnail\": {\"url\": \"https://cdn-icons-png.flaticon.com/512/753/753345.png\"},
               \"fields\": [
                 {\"name\": \"🔗 URL\", \"value\": \"[mentari.unpam.ac.id](https://mentari.unpam.ac.id)\", \"inline\": true},
                 {\"name\": \"📊 Status Code\", \"value\": \"\`${{ env.STATUS_CODE }}\`\", \"inline\": true},
+                {\"name\": \"⏱️ Response Time\", \"value\": \"\`${{ env.RESPONSE_TIME }}s\`\", \"inline\": true},
                 {\"name\": \"🔴 Status\", \"value\": \"**OFFLINE**\", \"inline\": true},
                 {\"name\": \"🔄 Previous\", \"value\": \"\`${{ env.PREV_STATUS }}\`\", \"inline\": true},
-                {\"name\": \"✅ Verified\", \"value\": \"Double-checked\", \"inline\": true},
-                {\"name\": \"🌍 Monitor\", \"value\": \"GitHub Actions\", \"inline\": true}
+                {\"name\": \"✅ Verified\", \"value\": \"3-step verification\", \"inline\": true}
               ],
               \"footer\": {\"text\": \"Mentari Monitor • $(date +'%H:%M:%S')\", \"icon_url\": \"https://github.com/favicon.ico\"},
               \"timestamp\": \"${TIMESTAMP}\"
@@ -208,14 +244,14 @@ jobs:
           echo "DOWN" > status.txt
           echo "🔴 DOWN notification sent"
 
-      # 🔹 7. Status unchanged
+      # 🔹 6. Status unchanged
       - name: Status unchanged
         if: env.CURRENT_STATUS == env.PREV_STATUS
         run: |
           echo "✅ Status unchanged: ${{ env.CURRENT_STATUS }}"
           echo "${{ env.CURRENT_STATUS }}" > status.txt
 
-      # 🔹 8. Commit status
+      # 🔹 7. Commit status
       - name: Commit status changes
         run: |
           git config --local user.email "action@github.com"
